@@ -1,9 +1,16 @@
 import streamlit as st
 import os
+import json
 from datetime import datetime
 from database import init_db, get_user_entry, save_entry, get_all_entries
 from config import USERS, HABITS, HABIT_TYPES
-from utils import display_habits_form, get_today_date
+from utils import (
+    display_habits_form, 
+    get_today_date,
+    filter_entries_by_period,
+    calculate_health_score,
+    get_period_label
+)
 
 # Page configuration
 st.set_page_config(
@@ -98,26 +105,65 @@ elif page == "📊 Analysis":
     if selected_user:
         st.divider()
         
-        # Get all entries for user
-        all_entries = get_all_entries(selected_user)
+        # Time period selector
+        col1, col2, col3 = st.columns([2, 2, 2])
         
-        if all_entries:
+        with col1:
+            period = st.selectbox(
+                "📅 Select Time Period:",
+                ["today", "week", "month", "year", "all"],
+                format_func=get_period_label,
+                key="period_select"
+            )
+        
+        # Get all entries and filter by period
+        all_entries = get_all_entries(selected_user)
+        period_entries = filter_entries_by_period(all_entries, period)
+        
+        if period_entries:
+            # Calculate and display health score
+            health = calculate_health_score(period_entries)
+            
+            # Health score card
+            with col2:
+                # Color based on score
+                if health["score"] >= 70:
+                    color = "🟢"
+                    status = "Excellent"
+                elif health["score"] >= 50:
+                    color = "🟡"
+                    status = "Good"
+                else:
+                    color = "🔴"
+                    status = "Needs Improvement"
+                
+                st.metric(f"Health Score {color}", f"{health['score']:.0f}/100", status)
+            
+            # Display risk factors
+            with col3:
+                if health["risk_factors"]:
+                    st.warning("⚠️ **Risk Factors:**\n" + "\n".join(health["risk_factors"]))
+                else:
+                    st.success("✅ **No Risk Factors Detected!**")
+            
+            st.divider()
+            
             # Summary metrics
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("Total Days Tracked", len(all_entries))
+                st.metric("Days Tracked", len(period_entries))
             
             with col2:
-                completed_entries = len([e for e in all_entries if e])
-                st.metric("Completed Entries", completed_entries)
+                st.metric("Sugar Risk", f"{health['sugar_risk']:.0f}%")
             
             with col3:
-                if all_entries:
-                    st.metric("Tracking Rate", f"{(completed_entries/len(all_entries)*100):.1f}%")
+                st.metric("Scrolling Risk", f"{health['scrolling_risk']:.0f}%")
             
             with col4:
-                st.metric("Last Entry", all_entries[0][0] if all_entries else "N/A")
+                if health["good_habits"]:
+                    best_habit = max(health["good_habits"].items(), key=lambda x: x[1])
+                    st.metric("Best Habit", best_habit[0], f"{best_habit[1]:.0f}%")
             
             st.divider()
             
@@ -128,20 +174,30 @@ elif page == "📊 Analysis":
             habit_completion = {}
             for habit_name in HABITS:
                 completion_count = 0
-                for entry in all_entries:
+                for entry in period_entries:
                     if entry and len(entry) > 1:
                         try:
-                            entry_data = eval(entry[1])  # Parse JSON string
+                            # Use json.loads instead of eval (safer and more reliable)
+                            entry_data = json.loads(entry[1])
+                            
                             if habit_name in entry_data:
-                                if entry_data[habit_name] == True or entry_data[habit_name] == "Yes":
-                                    completion_count += 1
-                        except:
+                                value = entry_data[habit_name]
+                                
+                                # For boolean habits: count if True
+                                if HABITS[habit_name] == "boolean":
+                                    if value == True or value == "Yes":
+                                        completion_count += 1
+                                # For select habits: count any selection (not None/empty)
+                                elif HABITS[habit_name] == "select":
+                                    if value and value != "" and value != "None":
+                                        completion_count += 1
+                        except Exception as e:
                             pass
                 
-                completion_rate = (completion_count / len(all_entries) * 100) if all_entries else 0
+                completion_rate = (completion_count / len(period_entries) * 100) if period_entries else 0
                 habit_completion[habit_name] = {
                     "completed": completion_count,
-                    "total": len(all_entries),
+                    "total": len(period_entries),
                     "rate": completion_rate
                 }
             
@@ -166,16 +222,85 @@ elif page == "📊 Analysis":
             
             st.divider()
             
+            # Risk Factors Detailed Analysis
+            st.subheader("⚠️ Risk Factor Analysis")
+            
+            risk_col1, risk_col2 = st.columns(2)
+            
+            with risk_col1:
+                st.write("**🍬 Sugar Intake Levels**")
+                sugar_levels = {"Nil": 0, "Low": 0, "High": 0}
+                for entry in period_entries:
+                    if entry and len(entry) > 1:
+                        try:
+                            entry_data = json.loads(entry[1])
+                            if "Sugar Intake" in entry_data:
+                                level = entry_data["Sugar Intake"]
+                                if level in sugar_levels:
+                                    sugar_levels[level] += 1
+                        except:
+                            pass
+                
+                # Create visualization
+                if sum(sugar_levels.values()) > 0:
+                    st.bar_chart(sugar_levels)
+                    high_pct = (sugar_levels["High"] / sum(sugar_levels.values()) * 100) if sum(sugar_levels.values()) > 0 else 0
+                    if high_pct > 50:
+                        st.error(f"⛔ High sugar intake detected ({high_pct:.0f}% of days)")
+                    elif high_pct > 25:
+                        st.warning(f"⚠️ Moderate sugar intake ({high_pct:.0f}% of days)")
+                    else:
+                        st.success(f"✅ Good sugar control ({high_pct:.0f}% of days)")
+                else:
+                    st.info("No sugar intake data recorded")
+            
+            with risk_col2:
+                st.write("**📱 Scrolling Levels**")
+                scrolling_levels = {"None": 0, "Low": 0, "High": 0}
+                for entry in period_entries:
+                    if entry and len(entry) > 1:
+                        try:
+                            entry_data = json.loads(entry[1])
+                            if "Scrolling" in entry_data:
+                                level = entry_data["Scrolling"]
+                                if level in scrolling_levels:
+                                    scrolling_levels[level] += 1
+                        except:
+                            pass
+                
+                # Create visualization
+                if sum(scrolling_levels.values()) > 0:
+                    st.bar_chart(scrolling_levels)
+                    high_pct = (scrolling_levels["High"] / sum(scrolling_levels.values()) * 100) if sum(scrolling_levels.values()) > 0 else 0
+                    if high_pct > 50:
+                        st.error(f"⛔ High scrolling detected ({high_pct:.0f}% of days)")
+                    elif high_pct > 25:
+                        st.warning(f"⚠️ Moderate scrolling ({high_pct:.0f}% of days)")
+                    else:
+                        st.success(f"✅ Good scrolling control ({high_pct:.0f}% of days)")
+                else:
+                    st.info("No scrolling data recorded")
+            
+            st.divider()
+            
             # Recent entries
             st.subheader("Recent Entries")
             
-            for entry_date, entry_data_str in all_entries[:10]:  # Last 10 entries
+            for entry_date, entry_data_str in period_entries[:10]:  # Last 10 entries in period
                 with st.expander(f"📅 {entry_date}"):
                     try:
-                        entry_data = eval(entry_data_str)
+                        entry_data = json.loads(entry_data_str)
                         for habit, value in entry_data.items():
                             st.write(f"**{habit}:** {value}")
                     except:
                         st.write("Error parsing entry data")
+            
+            st.divider()
+            
+            # # Debug section
+            # with st.expander("🔍 Debug: View Raw Data"):
+            #     st.write(f"**Entries for {get_period_label(period)} (raw JSON):**")
+            #     for entry_date, entry_data_str in period_entries[:5]:  # Show last 5
+            #         st.code(f"Date: {entry_date}\nData: {entry_data_str}", language="json")
         else:
-            st.info("No entries yet. Start logging your habits from the Daily Entry page!", icon="ℹ️")
+            st.info(f"No entries for {get_period_label(period)}. Start logging your habits from the Daily Entry page!", icon="ℹ️")

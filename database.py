@@ -90,15 +90,20 @@ def _get_user_entry_d1(username, entry_date):
         result = response.json()
         
         if result.get('success') and result.get('result'):
-            row = result['result'][0].get('results', [])
-            if row:
+            rows = result['result'][0].get('results', [])
+            if rows:
                 return {
-                    "date": row[0]["entry_date"],
-                    "habits": json.loads(row[0]["habits_data"])
+                    "date": rows[0]["entry_date"],
+                    "habits": json.loads(rows[0]["habits_data"])
                 }
+        else:
+            print(f"D1 Read Error: {result.get('errors', 'Unknown error')}")
+        
         return None
     except Exception as e:
         print(f"Error fetching entry from D1: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def save_entry(username, entry_date, habits_data):
@@ -142,23 +147,55 @@ def _save_entry_d1(username, entry_date, habits_data):
         
         habits_json = json.dumps(habits_data)
         
-        # Try to insert, if it fails due to unique constraint, update instead
-        data = {
-            "sql": """
-                INSERT INTO habit_entries (username, entry_date, habits_data)
-                VALUES (?, ?, ?)
-                ON CONFLICT(username, entry_date)
-                DO UPDATE SET habits_data = ?, updated_at = CURRENT_TIMESTAMP
-            """,
-            "params": [username, entry_date, habits_json, habits_json]
+        # First, try to check if entry exists
+        check_data = {
+            "sql": "SELECT id FROM habit_entries WHERE username = ? AND entry_date = ?",
+            "params": [username, entry_date]
         }
         
-        response = requests.post(url, json=data, headers=headers)
+        check_response = requests.post(url, json=check_data, headers=headers)
+        check_result = check_response.json()
+        
+        entry_exists = False
+        if check_result.get('success') and check_result.get('result'):
+            results = check_result['result'][0].get('results', [])
+            entry_exists = len(results) > 0
+        
+        # Use appropriate SQL based on whether entry exists
+        if entry_exists:
+            # Update existing entry
+            sql = """
+                UPDATE habit_entries 
+                SET habits_data = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE username = ? AND entry_date = ?
+            """
+            params = [habits_json, username, entry_date]
+        else:
+            # Insert new entry
+            sql = """
+                INSERT INTO habit_entries (username, entry_date, habits_data)
+                VALUES (?, ?, ?)
+            """
+            params = [username, entry_date, habits_json]
+        
+        write_data = {
+            "sql": sql,
+            "params": params
+        }
+        
+        response = requests.post(url, json=write_data, headers=headers)
         result = response.json()
+        
+        if not result.get('success'):
+            error_msg = result.get('errors', ['Unknown error'])[0] if result.get('errors') else 'Unknown error'
+            print(f"D1 Write Error: {error_msg}")
+            print(f"Response: {result}")
         
         return result.get('success', False)
     except Exception as e:
         print(f"Error saving entry to D1: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def get_all_entries(username):
@@ -207,10 +244,15 @@ def _get_all_entries_d1(username):
         
         if result.get('success') and result.get('result'):
             results = []
-            for row in result['result'].get('results', []):
+            for row in result['result'][0].get('results', []):
                 results.append((row["entry_date"], row["habits_data"]))
             return results
+        else:
+            print(f"D1 Get All Entries Error: {result.get('errors', 'Unknown error')}")
+        
         return []
     except Exception as e:
         print(f"Error fetching all entries from D1: {e}")
+        import traceback
+        traceback.print_exc()
         return []
