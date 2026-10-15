@@ -76,10 +76,10 @@ if page == "📝 Daily Entry":
             if st.button("✅ Submit Today's Entry", use_container_width=True, type="primary"):
                 try:
                     save_entry(selected_user, get_today_date(), habits_data)
-                    st.success("✅ Your entry has been saved successfully!", icon="✓")
+                    st.success("✅ Your entry has been saved successfully!", icon="✅")
                     st.balloons()
                 except Exception as e:
-                    st.error(f"❌ Error saving entry: {str(e)}", icon="✕")
+                    st.error(f"❌ Error saving entry: {str(e)}", icon="❌")
         
         with col2:
             if st.button("🔄 Reset Form", use_container_width=True):
