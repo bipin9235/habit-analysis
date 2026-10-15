@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import json
+import pandas as pd
 from datetime import datetime
 from database import init_db, get_user_entry, save_entry, get_all_entries
 from config import USERS, HABITS, HABIT_TYPES
@@ -206,7 +207,12 @@ elif page == "📊 Analysis":
             
             with col1:
                 chart_data = {h: v["rate"] for h, v in habit_completion.items()}
-                st.bar_chart(chart_data)
+                if chart_data:
+                    # Convert to DataFrame for better compatibility
+                    df = pd.DataFrame(list(chart_data.items()), columns=["Habit", "Rate"])
+                    st.bar_chart(df.set_index("Habit"))
+                else:
+                    st.info("No habit data available for this period")
             
             with col2:
                 st.write("**Completion Rates:**")
@@ -243,7 +249,8 @@ elif page == "📊 Analysis":
                 
                 # Create visualization
                 if sum(sugar_levels.values()) > 0:
-                    st.bar_chart(sugar_levels)
+                    df_sugar = pd.DataFrame(list(sugar_levels.items()), columns=["Level", "Days"])
+                    st.bar_chart(df_sugar.set_index("Level"))
                     high_pct = (sugar_levels["High"] / sum(sugar_levels.values()) * 100) if sum(sugar_levels.values()) > 0 else 0
                     if high_pct > 50:
                         st.error(f"⛔ High sugar intake detected ({high_pct:.0f}% of days)")
@@ -270,7 +277,8 @@ elif page == "📊 Analysis":
                 
                 # Create visualization
                 if sum(scrolling_levels.values()) > 0:
-                    st.bar_chart(scrolling_levels)
+                    df_scrolling = pd.DataFrame(list(scrolling_levels.items()), columns=["Level", "Days"])
+                    st.bar_chart(df_scrolling.set_index("Level"))
                     high_pct = (scrolling_levels["High"] / sum(scrolling_levels.values()) * 100) if sum(scrolling_levels.values()) > 0 else 0
                     if high_pct > 50:
                         st.error(f"⛔ High scrolling detected ({high_pct:.0f}% of days)")

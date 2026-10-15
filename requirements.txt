@@ -1,3 +1,5 @@
 streamlit==1.40.2
 requests==2.32.3
 python-dotenv==1.0.0
+pandas==2.2.0
+altair==5.2.0
