@@ -4,6 +4,8 @@
 
 The application is a Python Streamlit app. `app.py` renders the interface and calls the database and analytics modules. Streamlit reruns the script when a user changes a control or submits a form.
 
+All app dates and emotion timestamps use India Standard Time (UTC+05:30), independent of the hosting server's timezone.
+
 The app can use either:
 
 - **Local SQLite** when Cloudflare D1 credentials are not all configured. The database file is `habit_tracker.db`.

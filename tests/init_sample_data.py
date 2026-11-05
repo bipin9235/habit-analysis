@@ -6,7 +6,7 @@ Run this to populate the database with sample entries for testing
 import sqlite3
 import json
 from datetime import datetime, timedelta
-from config import LOCAL_DB_PATH, USERS
+from config import INDIA_TIMEZONE, LOCAL_DB_PATH, USERS
 
 def init_sample_data():
     """Initialize database with sample data for testing"""
@@ -96,7 +96,7 @@ def init_sample_data():
     }
     
     # Insert sample data
-    today = datetime.now().date()
+    today = datetime.now(INDIA_TIMEZONE).date()
     
     for username in USERS:
         if username in sample_habits:

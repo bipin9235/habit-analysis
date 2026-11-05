@@ -1,12 +1,29 @@
 import streamlit as st
-from datetime import datetime, timedelta
-from config import HABITS, HABIT_SELECT_OPTIONS, HABIT_TYPES
+from datetime import datetime, timedelta, timezone
+from config import HABITS, HABIT_SELECT_OPTIONS, HABIT_TYPES, INDIA_TIMEZONE
 import json
 import pandas as pd
 
 def get_today_date():
-    """Get today's date in YYYY-MM-DD format"""
-    return datetime.now().strftime("%Y-%m-%d")
+    """Get today's date in India Standard Time as YYYY-MM-DD."""
+    return datetime.now(INDIA_TIMEZONE).strftime("%Y-%m-%d")
+
+def to_india_datetime(value):
+    """Parse an ISO timestamp and return it in India Standard Time."""
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(INDIA_TIMEZONE)
+
+def get_intensity_band(intensity):
+    """Return the color marker and label for an emotion intensity score."""
+    if intensity <= 2:
+        return "🟢", "Gentle"
+    if intensity <= 4:
+        return "🟡", "Mild"
+    if intensity <= 7:
+        return "🟠", "Moderate"
+    return "🔴", "Strong"
 
 def display_habits_form(username, today_entry=None):
     """Display the habit entry form and return the habits data"""
@@ -107,7 +124,7 @@ def filter_entries_by_period(entries, period="all"):
     if period == "all":
         return entries
     
-    today = datetime.now().date()
+    today = datetime.now(INDIA_TIMEZONE).date()
     filtered = []
     
     for entry_date_str, entry_data in entries:
@@ -139,13 +156,13 @@ def filter_emotion_entries_by_period(entries, period="all"):
     if period == "all":
         return entries
 
-    today = datetime.now().date()
+    today = datetime.now(INDIA_TIMEZONE).date()
     filtered = []
     period_days = {"week": 7, "month": 30, "year": 365}
 
     for entry in entries:
         try:
-            entry_date = datetime.fromisoformat(entry["occurred_at"]).date()
+            entry_date = to_india_datetime(entry["occurred_at"]).date()
             days_ago = (today - entry_date).days
             if period == "today" and days_ago == 0:
                 filtered.append(entry)

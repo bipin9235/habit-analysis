@@ -1,7 +1,10 @@
 import os
+from datetime import timedelta, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
+
+INDIA_TIMEZONE = timezone(timedelta(hours=5, minutes=30), name="IST")
 
 # Users for the application (demo setup with 3 users)
 USERS = ["Bipin", "Ragini"]
