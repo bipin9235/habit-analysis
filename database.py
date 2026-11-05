@@ -38,6 +38,17 @@ def _init_local_db():
             cause TEXT NOT NULL DEFAULT ''
         )
     ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            google_sub TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            username TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     
     conn.commit()
     conn.close()
@@ -50,6 +61,101 @@ def _init_d1_db():
         pass
     except Exception as e:
         print(f"Error initializing D1: {e}")
+
+def _d1_query(sql, params):
+    """Execute a parameterized query against Cloudflare D1 and return rows."""
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/d1/database/{D1_DATABASE_ID}/query"
+    headers = {
+        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    response = requests.post(
+        url,
+        json={"sql": sql, "params": params},
+        headers=headers,
+        timeout=15
+    )
+    response.raise_for_status()
+    result = response.json()
+    if not result.get("success"):
+        raise RuntimeError(f"D1 query failed: {result.get('errors', 'Unknown error')}")
+    query_results = result.get("result", [])
+    return query_results[0].get("results", []) if query_results else []
+
+def register_user(google_sub, email, display_name, legacy_username=None):
+    """Create or refresh a Google account while preserving its internal data key."""
+    if not google_sub or not email:
+        raise ValueError("A Google subject ID and email are required")
+
+    requested_username = legacy_username or google_sub
+    if USE_LOCAL_DB:
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        try:
+            cursor = conn.cursor()
+            existing_user = cursor.execute(
+                "SELECT username FROM users WHERE google_sub = ?",
+                (google_sub,)
+            ).fetchone()
+            if existing_user:
+                username = existing_user[0]
+            else:
+                username_owner = cursor.execute(
+                    "SELECT google_sub FROM users WHERE username = ?",
+                    (requested_username,)
+                ).fetchone()
+                if username_owner:
+                    raise ValueError("The legacy username is already linked to another account")
+                username = requested_username
+
+            cursor.execute(
+                '''INSERT INTO users (google_sub, email, display_name, username)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(google_sub) DO UPDATE SET
+                       email = excluded.email,
+                       display_name = excluded.display_name,
+                       updated_at = CURRENT_TIMESTAMP''',
+                (google_sub, email, display_name or email, username)
+            )
+            conn.commit()
+            return {
+                "google_sub": google_sub,
+                "email": email,
+                "display_name": display_name or email,
+                "username": username
+            }
+        finally:
+            conn.close()
+
+    existing_user = _d1_query(
+        "SELECT username FROM users WHERE google_sub = ?",
+        [google_sub]
+    )
+    if existing_user:
+        username = existing_user[0]["username"]
+    else:
+        username_owner = _d1_query(
+            "SELECT google_sub FROM users WHERE username = ?",
+            [requested_username]
+        )
+        if username_owner:
+            raise ValueError("The legacy username is already linked to another account")
+        username = requested_username
+
+    _d1_query(
+        '''INSERT INTO users (google_sub, email, display_name, username)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(google_sub) DO UPDATE SET
+               email = excluded.email,
+               display_name = excluded.display_name,
+               updated_at = CURRENT_TIMESTAMP''',
+        [google_sub, email, display_name or email, username]
+    )
+    return {
+        "google_sub": google_sub,
+        "email": email,
+        "display_name": display_name or email,
+        "username": username
+    }
 
 def get_user_entry(username, entry_date):
     """Get a user's entry for a specific date"""

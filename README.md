@@ -118,6 +118,15 @@ If you want to use Cloudflare D1:
 5. **Create D1 schema**
    Run this SQL query in your D1 dashboard:
    ```sql
+      CREATE TABLE IF NOT EXISTS users (
+         google_sub TEXT PRIMARY KEY,
+         email TEXT NOT NULL,
+         display_name TEXT NOT NULL,
+         username TEXT NOT NULL UNIQUE,
+         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
    CREATE TABLE IF NOT EXISTS habit_entries (
        id INTEGER PRIMARY KEY AUTOINCREMENT,
        username TEXT NOT NULL,
@@ -143,7 +152,7 @@ If you want to use Cloudflare D1:
 ### Daily Entry
 1. Open the app
 2. Click on **"📝 Daily Entry"** in the sidebar
-3. Select your username
+3. Sign in with Google; your account is registered automatically the first time
 4. Check/select your habits for today
 5. Click **"✅ Submit Today's Entry"**
 6. To update an existing entry, just resubmit!
@@ -161,11 +170,11 @@ If you want to use Cloudflare D1:
 
 ## Authentication Setup
 
-The app requires Google sign-in and only allows accounts explicitly mapped to an existing app username. The account mapping is used for every habit and emotion database operation; users cannot select another account from the UI.
+The app requires Google sign-in. A verified Google account is automatically registered on its first visit. The stable Google account ID is stored in the `users` table and mapped to the internal key used by every habit and emotion database operation. Users cannot select another account's records.
 
 1. Create an OAuth 2.0 Client ID in Google Cloud Console with application type **Web application**.
 2. Add the exact redirect URI for each environment to **Authorized redirect URIs**. For local development, use `http://localhost:8501/oauth2callback`. For Streamlit Community Cloud, use `https://<your-app>.streamlit.app/oauth2callback`.
-3. Add the following tables to local `.streamlit/secrets.toml` or the deployed app's Streamlit Secrets settings. Replace all placeholder values, including the authorized email-to-username mappings. **Keep the existing top-level Cloudflare D1 secrets in the same secrets file/settings; do not replace them with only this snippet.**
+3. Add the following to local `.streamlit/secrets.toml` or the deployed app's Streamlit Secrets settings. Replace all placeholder values. **Keep the existing top-level Cloudflare D1 secrets in the same secrets file/settings; do not replace them with only this snippet.**
 
    ```toml
    [auth]
@@ -175,13 +184,14 @@ The app requires Google sign-in and only allows accounts explicitly mapped to an
    client_secret = "your-google-oauth-client-secret"
    server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
 
-   [authorized_users]
+   # Optional: link existing entries stored under legacy usernames.
+   [legacy_user_migrations]
    "bipin@example.com" = "Bipin"
    "ragini@example.com" = "Ragini"
    ```
 
-   Use the deployed redirect URI in the deployed app's secrets. Generate a strong cookie secret locally, for example with `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Never commit `secrets.toml` or put OAuth secrets in source code.
-4. Install the updated dependencies and restart the app. Google accounts not in `authorized_users`, or mapped to names absent from `USERS`, are denied access.
+   The optional `[legacy_user_migrations]` table maps Google emails to old usernames so existing habit and emotion history stays connected. Omit it for new users. Without a mapping, the app uses the Google account ID as the internal data key. Use the deployed redirect URI in the deployed app's secrets. Generate a strong cookie secret locally, for example with `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Never commit `secrets.toml` or put OAuth secrets in source code.
+4. Apply the `users` table schema to D1 before deploying, install updated dependencies, and restart the app. Google accounts with a verified email are automatically registered; Google consent-screen testing mode may still require adding test accounts in Google Cloud.
 
 ## Deployment to Streamlit Cloud (Free)
 
@@ -249,11 +259,7 @@ The test utilities and mock-data initializer are in `tests/`. Run the database i
 
 ## Adding More Users
 
-Edit `config.py` and update the `USERS` list:
-
-```python
-USERS = ["Alice", "Bob", "Charlie", "Diana", "Eve"]
-```
+No code or allowlist update is needed for new accounts. Users sign in with Google and their account is added to `users` automatically. To attach old records to an account, add its email and legacy username to `[legacy_user_migrations]` before that account's first sign-in.
 
 ## Adding More Habits
 

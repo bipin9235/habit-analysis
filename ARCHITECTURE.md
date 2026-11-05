@@ -29,7 +29,11 @@ One row per user and date. The `(username, entry_date)` uniqueness constraint su
 
 One row per emotion occurrence. Each row stores a username, timestamp, emotion name, intensity from 1 to 10, and an optional cause note. Multiple occurrences of the same emotion can be recorded on the same day.
 
-Local SQLite creates both tables on startup. Cloudflare D1 tables are provisioned manually; the required SQL is in [README.md](README.md).
+### `users`
+
+One row per Google account, keyed by Google's stable `sub` claim. Its internal `username` value scopes the existing habit and emotion tables. New accounts use the Google subject as this key; optional legacy mappings retain access to rows stored under previous usernames.
+
+Local SQLite creates all three tables on startup. Cloudflare D1 tables are provisioned manually; the required SQL is in [README.md](README.md).
 
 ## Data Flows
 
@@ -40,4 +44,4 @@ Local SQLite creates both tables on startup. Cloudflare D1 tables are provisione
 
 Streamlit requires a Python runtime and cannot run directly on Cloudflare Workers. Deploy the app to Streamlit Community Cloud or another Python-capable host. Cloudflare D1 can remain the database when the host can reach the Cloudflare API and the D1 schema and credentials are configured.
 
-Google OIDC sign-in is required. The authenticated email must be explicitly mapped to an existing username in the `authorized_users` Streamlit secrets table. Database operations use that mapped username; the UI does not allow choosing a different user's records. OAuth credentials and the cookie secret belong in Streamlit secrets, never in source control.
+Google OIDC sign-in is required. Verified accounts are registered automatically, keyed by Google's stable subject ID. Database operations use that account's internal username; the UI does not allow choosing a different user's records. OAuth credentials and the cookie secret belong in Streamlit secrets, never in source control.

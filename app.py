@@ -6,9 +6,9 @@ from datetime import datetime
 from streamlit.errors import StreamlitSecretNotFoundError
 from database import (
     init_db, get_user_entry, save_entry, get_all_entries,
-    save_emotion_entry, get_emotion_entries
+    save_emotion_entry, get_emotion_entries, register_user
 )
-from config import USERS, HABITS, HABIT_TYPES, EMOTIONS, EMOTION_DESCRIPTIONS, INDIA_TIMEZONE
+from config import HABITS, HABIT_TYPES, EMOTIONS, EMOTION_DESCRIPTIONS, INDIA_TIMEZONE
 from utils import (
     display_habits_form, 
     get_today_date,
@@ -17,8 +17,7 @@ from utils import (
     get_period_label,
     filter_emotion_entries_by_period,
     to_india_datetime,
-    get_intensity_band,
-    resolve_authorized_user
+    get_intensity_band
 )
 
 def save_current_emotion(username):
@@ -65,10 +64,9 @@ if not hasattr(st, "login") or not hasattr(st, "user"):
     st.error("Google sign-in requires Streamlit 1.42.0 or newer. Upgrade dependencies and restart the app.")
     st.stop()
 
-# Require Google sign-in and map the verified account to an existing app user.
+# Google sign-in configuration is required; new Google accounts are registered automatically.
 try:
     auth_config = st.secrets["auth"]
-    authorized_users = st.secrets["authorized_users"]
 except (KeyError, StreamlitSecretNotFoundError):
     st.error("Google sign-in is not configured. See the Authentication Setup section in README.md.")
     st.stop()
@@ -79,24 +77,45 @@ if not st.user.is_logged_in:
     st.stop()
 
 user_email = str(st.user.get("email", "")).strip().lower()
+google_sub = str(st.user.get("sub", "")).strip()
 email_verified = st.user.get("email_verified", False)
-authenticated_user = resolve_authorized_user(
-    user_email,
-    authorized_users,
-    USERS
-)
-
-if not email_verified or authenticated_user is None:
-    st.error("This Google account is not authorized for this app. Ask the owner to add it to the allowlist.")
+if not email_verified or not google_sub or not user_email:
+    st.error("Google sign-in must provide a verified email and account ID to use this app.")
     st.button("Sign out", on_click=st.logout)
     st.stop()
 
 # Initialize storage only after authentication succeeds.
 init_db()
 
+legacy_user_migrations = st.secrets.get("legacy_user_migrations", {})
+legacy_username = next(
+    (
+        username for email, username in legacy_user_migrations.items()
+        if email.strip().lower() == user_email
+    ),
+    None
+)
+
+session_user = st.session_state.get("_habit_tracker_user")
+if not session_user or session_user.get("google_sub") != google_sub:
+    try:
+        session_user = register_user(
+            google_sub,
+            user_email,
+            str(st.user.get("name", "")).strip() or user_email,
+            legacy_username
+        )
+        st.session_state["_habit_tracker_user"] = session_user
+    except Exception as error:
+        print(f"User registration failed: {error}")
+        st.error("Could not register your account. Confirm the users table exists in the configured database.")
+        st.stop()
+
+authenticated_user = session_user["username"]
+
 # Sidebar
 st.sidebar.title("🎯 Habit Tracker")
-st.sidebar.caption(user_email)
+st.sidebar.caption(session_user["display_name"])
 st.sidebar.button("Sign out", on_click=st.logout)
 page = st.sidebar.radio(
     "Navigate",

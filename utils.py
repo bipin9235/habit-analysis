@@ -25,17 +25,6 @@ def get_intensity_band(intensity):
         return "🟠", "Moderate"
     return "🔴", "Strong"
 
-def resolve_authorized_user(email, authorized_users, valid_usernames):
-    """Map an authenticated email to an allowed application username."""
-    normalized_email = (email or "").strip().lower()
-    if not normalized_email:
-        return None
-
-    for allowed_email, username in authorized_users.items():
-        if allowed_email.strip().lower() == normalized_email and username in valid_usernames:
-            return username
-    return None
-
 def display_habits_form(username, today_entry=None):
     """Display the habit entry form and return the habits data"""
     habits_data = {}
