@@ -27,6 +27,17 @@ def _init_local_db():
             UNIQUE(username, entry_date)
         )
     ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS emotion_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            emotion TEXT NOT NULL,
+            intensity INTEGER NOT NULL CHECK (intensity BETWEEN 1 AND 10),
+            cause TEXT NOT NULL DEFAULT ''
+        )
+    ''')
     
     conn.commit()
     conn.close()
@@ -204,6 +215,88 @@ def get_all_entries(username):
         return _get_all_entries_local(username)
     else:
         return _get_all_entries_d1(username)
+
+def save_emotion_entry(username, occurred_at, emotion, intensity, cause):
+    """Save one emotion occurrence for a user."""
+    if USE_LOCAL_DB:
+        try:
+            conn = sqlite3.connect(LOCAL_DB_PATH)
+            conn.execute(
+                '''INSERT INTO emotion_entries (username, occurred_at, emotion, intensity, cause)
+                   VALUES (?, ?, ?, ?, ?)''',
+                (username, occurred_at, emotion, intensity, cause)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error saving emotion entry: {e}")
+            return False
+
+    try:
+        url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/d1/database/{D1_DATABASE_ID}/query"
+        headers = {
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "sql": "INSERT INTO emotion_entries (username, occurred_at, emotion, intensity, cause) VALUES (?, ?, ?, ?, ?)",
+            "params": [username, occurred_at, emotion, intensity, cause]
+        }
+        response = requests.post(url, json=data, headers=headers)
+        result = response.json()
+        if not result.get("success"):
+            print(f"D1 emotion write error: {result.get('errors', 'Unknown error')}")
+        return result.get("success", False)
+    except Exception as e:
+        print(f"Error saving emotion entry to D1: {e}")
+        return False
+
+def get_emotion_entries(username):
+    """Get a user's emotion occurrences, newest first."""
+    if USE_LOCAL_DB:
+        try:
+            conn = sqlite3.connect(LOCAL_DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                '''SELECT occurred_at, emotion, intensity, cause
+                   FROM emotion_entries WHERE username = ? ORDER BY occurred_at DESC, id DESC''',
+                (username,)
+            )
+            results = cursor.fetchall()
+            conn.close()
+            return [
+                {"occurred_at": row[0], "emotion": row[1], "intensity": row[2], "cause": row[3]}
+                for row in results
+            ]
+        except Exception as e:
+            print(f"Error fetching emotion entries: {e}")
+            return []
+
+    try:
+        url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/d1/database/{D1_DATABASE_ID}/query"
+        headers = {
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "sql": "SELECT occurred_at, emotion, intensity, cause FROM emotion_entries WHERE username = ? ORDER BY occurred_at DESC, id DESC",
+            "params": [username]
+        }
+        response = requests.post(url, json=data, headers=headers)
+        result = response.json()
+        if result.get("success") and result.get("result"):
+            rows = result["result"][0].get("results", [])
+            return [
+                {"occurred_at": row["occurred_at"], "emotion": row["emotion"], "intensity": row["intensity"], "cause": row["cause"]}
+                for row in rows
+            ]
+        if not result.get("success"):
+            print(f"D1 emotion read error: {result.get('errors', 'Unknown error')}")
+        return []
+    except Exception as e:
+        print(f"Error fetching emotion entries from D1: {e}")
+        return []
 
 def _get_all_entries_local(username):
     """Get all entries from local database"""

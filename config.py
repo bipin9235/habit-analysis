@@ -32,6 +32,15 @@ HABIT_SELECT_OPTIONS = {
     "Scrolling": ["None", "Low", "High"],
 }
 
+EMOTIONS = ["Fear", "Happiness", "Nervousness", "Anxiety"]
+
+EMOTION_DESCRIPTIONS = {
+    "Fear": "A response to a perceived danger or threat, whether immediate or anticipated.",
+    "Happiness": "A feeling of joy, contentment, or pleasure.",
+    "Nervousness": "Feeling uneasy or on edge, often before an event or uncertain situation.",
+    "Anxiety": "Worry or dread that may persist even when there is no immediate threat.",
+}
+
 # Database configuration
 CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")

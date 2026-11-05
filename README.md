@@ -2,6 +2,8 @@
 
 A modern Streamlit app for tracking daily habits and analyzing your progress over time. Track habits like yoga, running, reading, meditation, and more. Store data in a Cloudflare D1 SQLite database or local SQLite for development.
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the application structure, data model, and data flows.
+
 ## Features
 
 ✨ **Easy Daily Entry**
@@ -14,6 +16,11 @@ A modern Streamlit app for tracking daily habits and analyzing your progress ove
 - Track streaks and progress over time
 - Visual charts and statistics
 - Recent entry history
+
+💭 **Emotion Tracking**
+- Log fear, happiness, nervousness, or anxiety with a 1-10 intensity rating
+- Add an optional note about what may have contributed to the emotion
+- Review occurrence counts and average intensity by emotion
 
 👥 **Multi-User Support**
 - Each user has their own habit log
@@ -120,6 +127,15 @@ If you want to use Cloudflare D1:
        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
        UNIQUE(username, entry_date)
    );
+
+   CREATE TABLE IF NOT EXISTS emotion_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      emotion TEXT NOT NULL,
+      intensity INTEGER NOT NULL CHECK (intensity BETWEEN 1 AND 10),
+      cause TEXT NOT NULL DEFAULT ''
+   );
    ```
 
 ## How to Use
@@ -137,6 +153,11 @@ If you want to use Cloudflare D1:
 2. Select a user
 3. View completion rates, charts, and recent entries
 4. Track your progress over time
+
+### Emotion Tracking
+1. Select **"💭 Emotion Log"** in the sidebar
+2. Choose an emotion, set its intensity, and optionally describe the cause
+3. Select **"📈 Emotion Analysis"** to review occurrences and average intensity by period
 
 ## Deployment to Streamlit Cloud (Free)
 
@@ -176,6 +197,7 @@ If deploying to Streamlit Cloud and using Cloudflare D1:
 ```
 habit-analysis/
 ├── app.py                  # Main Streamlit app
+├── ARCHITECTURE.md         # Modules, data model, and data flows
 ├── config.py              # Habit & user configuration
 ├── database.py            # Database operations (local & D1)
 ├── utils.py               # Utility functions
@@ -184,8 +206,22 @@ habit-analysis/
 ├── .gitignore             # Git ignore file
 ├── .streamlit/
 │   └── config.toml        # Streamlit configuration
+├── tests/
+│   ├── init_sample_data.py    # Populate local SQLite with mock habit data
+│   ├── check_database.py      # Inspect local or D1 database contents
+│   └── test_emotion_tracking.py # Emotion persistence and filtering tests
 └── README.md              # This file
 ```
+
+## Tests and Sample Data
+
+Run the automated tests with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The test utilities and mock-data initializer are in `tests/`. Run the database inspection utility from the project root with `python -m tests.check_database`.
 
 ## Adding More Users
 

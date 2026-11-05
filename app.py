@@ -3,14 +3,18 @@ import os
 import json
 import pandas as pd
 from datetime import datetime
-from database import init_db, get_user_entry, save_entry, get_all_entries
-from config import USERS, HABITS, HABIT_TYPES
+from database import (
+    init_db, get_user_entry, save_entry, get_all_entries,
+    save_emotion_entry, get_emotion_entries
+)
+from config import USERS, HABITS, HABIT_TYPES, EMOTIONS, EMOTION_DESCRIPTIONS
 from utils import (
     display_habits_form, 
     get_today_date,
     filter_entries_by_period,
     calculate_health_score,
-    get_period_label
+    get_period_label,
+    filter_emotion_entries_by_period
 )
 
 # Page configuration
@@ -44,7 +48,10 @@ init_db()
 
 # Sidebar
 st.sidebar.title("🎯 Habit Tracker")
-page = st.sidebar.radio("Navigate", ["📝 Daily Entry", "📊 Analysis"])
+page = st.sidebar.radio(
+    "Navigate",
+    ["📝 Daily Entry", "📊 Analysis", "💭 Emotion Log", "📈 Emotion Analysis"]
+)
 
 # Main content
 if page == "📝 Daily Entry":
@@ -312,3 +319,80 @@ elif page == "📊 Analysis":
             #         st.code(f"Date: {entry_date}\nData: {entry_data_str}", language="json")
         else:
             st.info(f"No entries for {get_period_label(period)}. Start logging your habits from the Daily Entry page!", icon="ℹ️")
+
+elif page == "💭 Emotion Log":
+    st.title("💭 Emotion Log")
+    st.caption("Record what you are feeling in the moment. Your notes are personal context, not a diagnosis.")
+
+    selected_user = st.selectbox("Select your username:", USERS, key="emotion_user")
+    emotion = st.selectbox("Which emotion are you feeling?", EMOTIONS, key="emotion_choice")
+    st.info(EMOTION_DESCRIPTIONS[emotion])
+
+    intensity_col, cause_col = st.columns([1, 2])
+    with intensity_col:
+        intensity = st.slider("Intensity", min_value=1, max_value=10, value=5)
+        if intensity <= 2:
+            intensity_label = "🟢 Gentle"
+        elif intensity <= 4:
+            intensity_label = "🟡 Mild"
+        elif intensity <= 7:
+            intensity_label = "🟠 Moderate"
+        else:
+            intensity_label = "🔴 Strong"
+        st.caption(f"{intensity_label} · {intensity}/10")
+    with cause_col:
+        cause = st.text_area("What may have contributed to this feeling?", max_chars=1000)
+
+    if st.button("Save Emotion", type="primary"):
+        occurred_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        if save_emotion_entry(selected_user, occurred_at, emotion, intensity, cause.strip()):
+            st.success("Emotion recorded.")
+        else:
+            st.error("Could not save this emotion. Please try again.")
+
+elif page == "📈 Emotion Analysis":
+    st.title("📈 Emotion Analysis")
+    selected_user = st.selectbox("Select user for analysis:", USERS, key="emotion_analysis_user")
+    period = st.selectbox(
+        "Time period:",
+        ["today", "week", "month", "year", "all"],
+        format_func=get_period_label,
+        key="emotion_period_select"
+    )
+
+    entries = filter_emotion_entries_by_period(get_emotion_entries(selected_user), period)
+    if not entries:
+        st.info(f"No emotion entries for {get_period_label(period)}. Record an emotion from Emotion Log.")
+    else:
+        grouped = {}
+        for entry in entries:
+            emotion_name = entry["emotion"]
+            grouped.setdefault(emotion_name, []).append(entry)
+
+        summary = []
+        for emotion_name, emotion_entries in grouped.items():
+            average_intensity = sum(entry["intensity"] for entry in emotion_entries) / len(emotion_entries)
+            summary.append({
+                "Emotion": emotion_name,
+                "Occurrences": len(emotion_entries),
+                "Average intensity": round(average_intensity, 1)
+            })
+
+        summary.sort(key=lambda item: item["Occurrences"], reverse=True)
+        summary_df = pd.DataFrame(summary)
+        st.subheader("Occurrences by emotion")
+        st.bar_chart(summary_df.set_index("Emotion")["Occurrences"])
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+        st.subheader("Emotion details")
+        for emotion_name, emotion_entries in grouped.items():
+            average_intensity = sum(entry["intensity"] for entry in emotion_entries) / len(emotion_entries)
+            with st.expander(f"{emotion_name} · {len(emotion_entries)} occurrence(s) · average {average_intensity:.1f}/10"):
+                st.caption(EMOTION_DESCRIPTIONS.get(emotion_name, ""))
+                for entry in emotion_entries:
+                    occurred_at = datetime.fromisoformat(entry["occurred_at"]).strftime("%b %d, %Y at %I:%M %p")
+                    st.markdown(f"**{occurred_at}** · Intensity **{entry['intensity']}/10**")
+                    if entry["cause"]:
+                        st.write(entry["cause"])
+                    else:
+                        st.caption("No cause note added.")

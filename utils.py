@@ -134,6 +134,28 @@ def filter_entries_by_period(entries, period="all"):
     
     return filtered
 
+def filter_emotion_entries_by_period(entries, period="all"):
+    """Filter timestamped emotion occurrences using the analytics period options."""
+    if period == "all":
+        return entries
+
+    today = datetime.now().date()
+    filtered = []
+    period_days = {"week": 7, "month": 30, "year": 365}
+
+    for entry in entries:
+        try:
+            entry_date = datetime.fromisoformat(entry["occurred_at"]).date()
+            days_ago = (today - entry_date).days
+            if period == "today" and days_ago == 0:
+                filtered.append(entry)
+            elif period in period_days and 0 <= days_ago < period_days[period]:
+                filtered.append(entry)
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    return filtered
+
 def calculate_health_score(entries):
     """
     Calculate overall health score based on habits
