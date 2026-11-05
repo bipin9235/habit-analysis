@@ -7,9 +7,6 @@ import database
 from config import INDIA_TIMEZONE
 from database import (
     get_emotion_entries,
-    get_user_entry,
-    register_user,
-    save_entry,
     save_emotion_entry,
 )
 from utils import (
@@ -74,32 +71,6 @@ class EmotionTrackingTests(unittest.TestCase):
         self.assertEqual(get_intensity_band(4), ("🟡", "Mild"))
         self.assertEqual(get_intensity_band(7), ("🟠", "Moderate"))
         self.assertEqual(get_intensity_band(8), ("🔴", "Strong"))
-
-    def test_new_user_registration_is_stable_and_isolated(self):
-        first_login = register_user("google-sub-1", "user@example.com", "New User")
-        repeat_login = register_user("google-sub-1", "updated@example.com", "Updated Name")
-        other_user = register_user("google-sub-2", "other@example.com", "Other User")
-
-        self.assertEqual(first_login["username"], "google-sub-1")
-        self.assertEqual(repeat_login["username"], first_login["username"])
-        self.assertEqual(repeat_login["email"], "updated@example.com")
-        self.assertNotEqual(other_user["username"], first_login["username"])
-
-    def test_legacy_user_mapping_keeps_existing_entries(self):
-        entry_date = "2026-11-05"
-        self.assertTrue(save_entry("Bipin", entry_date, {"Yoga": True}))
-        self.assertTrue(save_emotion_entry(
-            "Bipin", "2026-11-05T10:00:00+05:30", "Happiness", 8, "Good news"
-        ))
-
-        user = register_user(
-            "google-sub-bipin", "bipin@example.com", "Bipin", legacy_username="Bipin"
-        )
-
-        self.assertEqual(user["username"], "Bipin")
-        self.assertEqual(get_user_entry(user["username"], entry_date)["habits"], {"Yoga": True})
-        self.assertEqual(get_emotion_entries(user["username"])[0]["cause"], "Good news")
-
 
 if __name__ == "__main__":
     unittest.main()

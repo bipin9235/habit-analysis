@@ -14,6 +14,7 @@ The app can use either:
 ## Modules
 
 - `app.py`: Daily habit entry, habit analysis, emotion logging, and emotion analysis views.
+- `auth.py`: Email normalization and salted PBKDF2 password hashing and verification.
 - `config.py`: User names, habit definitions, emotion choices, and database configuration.
 - `database.py`: SQLite and D1 persistence operations.
 - `utils.py`: Date-period filtering and habit analytics calculations.
@@ -29,11 +30,11 @@ One row per user and date. The `(username, entry_date)` uniqueness constraint su
 
 One row per emotion occurrence. Each row stores a username, timestamp, emotion name, intensity from 1 to 10, and an optional cause note. Multiple occurrences of the same emotion can be recorded on the same day.
 
-### `users`
+### `password_users`
 
-One row per Google account, keyed by Google's stable `sub` claim. Its internal `username` value scopes the existing habit and emotion tables. New accounts use the Google subject as this key; optional legacy mappings retain access to rows stored under previous usernames.
+One row per email/password account. Each row stores a unique email, display name, salted password hash, and random internal `username` key. Habit and emotion rows are scoped by that internal key; passwords are never stored in plaintext.
 
-Local SQLite creates all three tables on startup. Cloudflare D1 tables are provisioned manually; the required SQL is in [README.md](README.md).
+Local SQLite creates the tables on startup. Cloudflare D1 tables are provisioned manually; the required SQL is in [README.md](README.md). A previous Google-auth `users` table, if present, is no longer used and is not deleted.
 
 ## Data Flows
 
@@ -44,4 +45,4 @@ Local SQLite creates all three tables on startup. Cloudflare D1 tables are provi
 
 Streamlit requires a Python runtime and cannot run directly on Cloudflare Workers. Deploy the app to Streamlit Community Cloud or another Python-capable host. Cloudflare D1 can remain the database when the host can reach the Cloudflare API and the D1 schema and credentials are configured.
 
-Google OIDC sign-in is required. Verified accounts are registered automatically, keyed by Google's stable subject ID. Database operations use that account's internal username; the UI does not allow choosing a different user's records. OAuth credentials and the cookie secret belong in Streamlit secrets, never in source control.
+Email/password sign-in is required. Passwords are hashed with PBKDF2-HMAC-SHA256 and a unique random salt. The authenticated session's internal username scopes all habit and emotion operations; the UI does not allow choosing another account's records. Email verification, password reset, and persistent login throttling are not implemented yet.

@@ -1,14 +1,14 @@
 import streamlit as st
-import os
 import json
 import pandas as pd
 from datetime import datetime
-from streamlit.errors import StreamlitSecretNotFoundError
 from database import (
     init_db, get_user_entry, save_entry, get_all_entries,
-    save_emotion_entry, get_emotion_entries, register_user
+    save_emotion_entry, get_emotion_entries,
+    register_password_user, get_password_user
 )
 from config import HABITS, HABIT_TYPES, EMOTIONS, EMOTION_DESCRIPTIONS, INDIA_TIMEZONE
+from auth import hash_password, normalize_email, verify_password
 from utils import (
     display_habits_form, 
     get_today_date,
@@ -39,7 +39,7 @@ st.set_page_config(
     page_title="Habit Tracker & Analysis",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Custom CSS
@@ -60,67 +60,78 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-if not hasattr(st, "login") or not hasattr(st, "user"):
-    st.error("Google sign-in requires Streamlit 1.42.0 or newer. Upgrade dependencies and restart the app.")
-    st.stop()
-
-# Google sign-in configuration is required; new Google accounts are registered automatically.
-try:
-    auth_config = st.secrets["auth"]
-except (KeyError, StreamlitSecretNotFoundError):
-    st.error("Google sign-in is not configured. See the Authentication Setup section in README.md.")
-    st.stop()
-
-if not st.user.is_logged_in:
-    st.title("Habit Tracker")
-    st.button("Sign in with Google", on_click=st.login)
-    st.stop()
-
-user_email = str(st.user.get("email", "")).strip().lower()
-google_sub = str(st.user.get("sub", "")).strip()
-email_verified = st.user.get("email_verified", False)
-if not email_verified or not google_sub or not user_email:
-    st.error("Google sign-in must provide a verified email and account ID to use this app.")
-    st.button("Sign out", on_click=st.logout)
-    st.stop()
-
-# Initialize storage only after authentication succeeds.
+# Initialize local storage, then require a password account before showing user data.
 init_db()
 
-legacy_user_migrations = st.secrets.get("legacy_user_migrations", {})
-legacy_username = next(
-    (
-        username for email, username in legacy_user_migrations.items()
-        if email.strip().lower() == user_email
-    ),
-    None
-)
+def sign_out():
+    st.session_state.pop("_password_account", None)
 
-session_user = st.session_state.get("_habit_tracker_user")
-if not session_user or session_user.get("google_sub") != google_sub:
-    try:
-        session_user = register_user(
-            google_sub,
-            user_email,
-            str(st.user.get("name", "")).strip() or user_email,
-            legacy_username
-        )
-        st.session_state["_habit_tracker_user"] = session_user
-    except Exception as error:
-        print(f"User registration failed: {error}")
-        st.error("Could not register your account. Confirm the users table exists in the configured database.")
-        st.stop()
+
+session_user = st.session_state.get("_password_account")
+if not session_user:
+    st.title("Habit Tracker")
+    auth_mode = st.radio("Account", ["Sign in", "Sign up"], horizontal=True)
+
+    if auth_mode == "Sign up":
+        with st.form("signup_form"):
+            display_name = st.text_input("Name", max_chars=100)
+            signup_email = st.text_input("Email", max_chars=254)
+            signup_password = st.text_input("Password (12+ characters)", type="password", max_chars=1024)
+            confirm_password = st.text_input("Confirm password", type="password", max_chars=1024)
+            signup_submitted = st.form_submit_button("Create account", type="primary")
+
+        if signup_submitted:
+            try:
+                normalized_email = normalize_email(signup_email)
+                if signup_password != confirm_password:
+                    raise ValueError("Passwords do not match")
+                session_user = register_password_user(
+                    normalized_email,
+                    display_name,
+                    hash_password(signup_password)
+                )
+                st.session_state["_password_account"] = session_user
+                st.rerun()
+            except ValueError as error:
+                st.error(str(error))
+            except Exception as error:
+                print(f"Account registration failed: {error}")
+                st.error("Could not create your account. Check the database connection and schema.")
+    else:
+        with st.form("signin_form"):
+            signin_email = st.text_input("Email", max_chars=254)
+            signin_password = st.text_input("Password", type="password", max_chars=1024)
+            signin_submitted = st.form_submit_button("Sign in", type="primary")
+
+        if signin_submitted:
+            try:
+                account = get_password_user(signin_email)
+                if account and verify_password(signin_password, account["password_hash"]):
+                    account.pop("password_hash", None)
+                    st.session_state["_password_account"] = account
+                    st.rerun()
+                st.error("Email or password is incorrect.")
+            except ValueError as error:
+                st.error(str(error))
+            except Exception as error:
+                print(f"Account sign-in failed: {error}")
+                st.error("Could not sign in. Check the database connection and schema.")
+    st.stop()
 
 authenticated_user = session_user["username"]
+user_email = session_user["email"]
 
 # Sidebar
 st.sidebar.title("🎯 Habit Tracker")
 st.sidebar.caption(session_user["display_name"])
-st.sidebar.button("Sign out", on_click=st.logout)
-page = st.sidebar.radio(
-    "Navigate",
-    ["📝 Daily Entry", "📊 Analysis", "💭 Emotion Log", "📈 Emotion Analysis"]
+st.sidebar.button("Sign out", on_click=sign_out)
+page = st.radio(
+    "Choose a page",
+    ["📝 Daily Entry", "📊 Analysis", "💭 Emotion Log", "📈 Emotion Analysis"],
+    horizontal=True,
+    key="main_navigation"
 )
+st.divider()
 
 # Main content
 if page == "📝 Daily Entry":

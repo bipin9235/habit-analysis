@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import requests
+import uuid
 from datetime import datetime
 from config import CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID, USE_LOCAL_DB, LOCAL_DB_PATH
 
@@ -40,13 +41,13 @@ def _init_local_db():
     ''')
 
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            google_sub TEXT PRIMARY KEY,
-            email TEXT NOT NULL,
+        CREATE TABLE IF NOT EXISTS password_users (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL COLLATE NOCASE UNIQUE,
             display_name TEXT NOT NULL,
             username TEXT NOT NULL UNIQUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -82,80 +83,73 @@ def _d1_query(sql, params):
     query_results = result.get("result", [])
     return query_results[0].get("results", []) if query_results else []
 
-def register_user(google_sub, email, display_name, legacy_username=None):
-    """Create or refresh a Google account while preserving its internal data key."""
-    if not google_sub or not email:
-        raise ValueError("A Google subject ID and email are required")
+def register_password_user(email, display_name, password_hash):
+    """Create a password account with a private internal key for tracking data."""
+    from auth import normalize_email
 
-    requested_username = legacy_username or google_sub
+    normalized_email = normalize_email(email)
+    if not password_hash:
+        raise ValueError("A password hash is required")
+
+    account_id = uuid.uuid4().hex
+    username = f"account_{account_id}"
+    normalized_name = (display_name or "").strip() or normalized_email
+
     if USE_LOCAL_DB:
         conn = sqlite3.connect(LOCAL_DB_PATH)
         try:
-            cursor = conn.cursor()
-            existing_user = cursor.execute(
-                "SELECT username FROM users WHERE google_sub = ?",
-                (google_sub,)
-            ).fetchone()
-            if existing_user:
-                username = existing_user[0]
-            else:
-                username_owner = cursor.execute(
-                    "SELECT google_sub FROM users WHERE username = ?",
-                    (requested_username,)
-                ).fetchone()
-                if username_owner:
-                    raise ValueError("The legacy username is already linked to another account")
-                username = requested_username
-
-            cursor.execute(
-                '''INSERT INTO users (google_sub, email, display_name, username)
-                   VALUES (?, ?, ?, ?)
-                   ON CONFLICT(google_sub) DO UPDATE SET
-                       email = excluded.email,
-                       display_name = excluded.display_name,
-                       updated_at = CURRENT_TIMESTAMP''',
-                (google_sub, email, display_name or email, username)
+            conn.execute(
+                '''INSERT INTO password_users (id, email, display_name, username, password_hash)
+                   VALUES (?, ?, ?, ?, ?)''',
+                (account_id, normalized_email, normalized_name, username, password_hash)
             )
             conn.commit()
-            return {
-                "google_sub": google_sub,
-                "email": email,
-                "display_name": display_name or email,
-                "username": username
-            }
+        except sqlite3.IntegrityError as error:
+            raise ValueError("An account with that email already exists") from error
+        finally:
+            conn.close()
+    else:
+        try:
+            _d1_query(
+                '''INSERT INTO password_users (id, email, display_name, username, password_hash)
+                   VALUES (?, ?, ?, ?, ?)''',
+                [account_id, normalized_email, normalized_name, username, password_hash]
+            )
+        except RuntimeError as error:
+            if "UNIQUE constraint failed" in str(error):
+                raise ValueError("An account with that email already exists") from error
+            raise
+
+    return {
+        "id": account_id,
+        "email": normalized_email,
+        "display_name": normalized_name,
+        "username": username
+    }
+
+def get_password_user(email):
+    """Find a password account by its case-insensitive email address."""
+    from auth import normalize_email
+
+    normalized_email = normalize_email(email)
+    columns = "id, email, display_name, username, password_hash"
+    if USE_LOCAL_DB:
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        try:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                f"SELECT {columns} FROM password_users WHERE email = ? COLLATE NOCASE",
+                (normalized_email,)
+            ).fetchone()
+            return dict(row) if row else None
         finally:
             conn.close()
 
-    existing_user = _d1_query(
-        "SELECT username FROM users WHERE google_sub = ?",
-        [google_sub]
+    rows = _d1_query(
+        f"SELECT {columns} FROM password_users WHERE email = ? COLLATE NOCASE",
+        [normalized_email]
     )
-    if existing_user:
-        username = existing_user[0]["username"]
-    else:
-        username_owner = _d1_query(
-            "SELECT google_sub FROM users WHERE username = ?",
-            [requested_username]
-        )
-        if username_owner:
-            raise ValueError("The legacy username is already linked to another account")
-        username = requested_username
-
-    _d1_query(
-        '''INSERT INTO users (google_sub, email, display_name, username)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(google_sub) DO UPDATE SET
-               email = excluded.email,
-               display_name = excluded.display_name,
-               updated_at = CURRENT_TIMESTAMP''',
-        [google_sub, email, display_name or email, username]
-    )
-    return {
-        "google_sub": google_sub,
-        "email": email,
-        "display_name": display_name or email,
-        "username": username
-    }
+    return rows[0] if rows else None
 
 def get_user_entry(username, entry_date):
     """Get a user's entry for a specific date"""
