@@ -40,4 +40,4 @@ Local SQLite creates both tables on startup. Cloudflare D1 tables are provisione
 
 Streamlit requires a Python runtime and cannot run directly on Cloudflare Workers. Deploy the app to Streamlit Community Cloud or another Python-capable host. Cloudflare D1 can remain the database when the host can reach the Cloudflare API and the D1 schema and credentials are configured.
 
-The current username selector is not authentication. Anyone who can access a deployed app can select another user and view that user's habit and emotion data. Use an access-controlled deployment before storing personal data in a publicly reachable app.
+Google OIDC sign-in is required. The authenticated email must be explicitly mapped to an existing username in the `authorized_users` Streamlit secrets table. Database operations use that mapped username; the UI does not allow choosing a different user's records. OAuth credentials and the cookie secret belong in Streamlit secrets, never in source control.

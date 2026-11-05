@@ -3,6 +3,7 @@ import os
 import json
 import pandas as pd
 from datetime import datetime
+from streamlit.errors import StreamlitSecretNotFoundError
 from database import (
     init_db, get_user_entry, save_entry, get_all_entries,
     save_emotion_entry, get_emotion_entries
@@ -16,12 +17,13 @@ from utils import (
     get_period_label,
     filter_emotion_entries_by_period,
     to_india_datetime,
-    get_intensity_band
+    get_intensity_band,
+    resolve_authorized_user
 )
 
-def save_current_emotion():
+def save_current_emotion(username):
     saved = save_emotion_entry(
-        st.session_state["emotion_user"],
+        username,
         datetime.now(INDIA_TIMEZONE).isoformat(timespec="seconds"),
         st.session_state["emotion_choice"],
         st.session_state["emotion_intensity"],
@@ -59,11 +61,43 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Initialize database
+if not hasattr(st, "login") or not hasattr(st, "user"):
+    st.error("Google sign-in requires Streamlit 1.42.0 or newer. Upgrade dependencies and restart the app.")
+    st.stop()
+
+# Require Google sign-in and map the verified account to an existing app user.
+try:
+    auth_config = st.secrets["auth"]
+    authorized_users = st.secrets["authorized_users"]
+except (KeyError, StreamlitSecretNotFoundError):
+    st.error("Google sign-in is not configured. See the Authentication Setup section in README.md.")
+    st.stop()
+
+if not st.user.is_logged_in:
+    st.title("Habit Tracker")
+    st.button("Sign in with Google", on_click=st.login)
+    st.stop()
+
+user_email = str(st.user.get("email", "")).strip().lower()
+email_verified = st.user.get("email_verified", False)
+authenticated_user = resolve_authorized_user(
+    user_email,
+    authorized_users,
+    USERS
+)
+
+if not email_verified or authenticated_user is None:
+    st.error("This Google account is not authorized for this app. Ask the owner to add it to the allowlist.")
+    st.button("Sign out", on_click=st.logout)
+    st.stop()
+
+# Initialize storage only after authentication succeeds.
 init_db()
 
 # Sidebar
 st.sidebar.title("🎯 Habit Tracker")
+st.sidebar.caption(user_email)
+st.sidebar.button("Sign out", on_click=st.logout)
 page = st.sidebar.radio(
     "Navigate",
     ["📝 Daily Entry", "📊 Analysis", "💭 Emotion Log", "📈 Emotion Analysis"]
@@ -73,16 +107,10 @@ page = st.sidebar.radio(
 if page == "📝 Daily Entry":
     st.title("📝 Daily Habit Entry")
     
-    # User selection
+    selected_user = authenticated_user
     col1, col2 = st.columns([2, 1])
-    
     with col1:
-        selected_user = st.selectbox(
-            "Select your username:",
-            USERS,
-            key="user_select"
-        )
-    
+        st.caption(f"Signed in as {user_email}")
     with col2:
         st.metric("Today's Date", get_today_date())
     
@@ -119,12 +147,7 @@ if page == "📝 Daily Entry":
 elif page == "📊 Analysis":
     st.title("📊 Habit Analysis Dashboard")
     
-    # User selection for analysis
-    selected_user = st.selectbox(
-        "Select user for analysis:",
-        USERS,
-        key="user_analysis"
-    )
+    selected_user = authenticated_user
     
     if selected_user:
         st.divider()
@@ -346,7 +369,6 @@ elif page == "💭 Emotion Log":
     elif save_status is False:
         st.error("Could not save this emotion. Your form values are still here so you can retry.")
 
-    selected_user = st.selectbox("Select your username:", USERS, key="emotion_user")
     emotion = st.selectbox("Which emotion are you feeling?", EMOTIONS, key="emotion_choice")
     st.info(EMOTION_DESCRIPTIONS[emotion])
 
@@ -362,11 +384,15 @@ elif page == "💭 Emotion Log":
             key="emotion_cause"
         )
 
-    st.button("Save Emotion", type="primary", on_click=save_current_emotion)
+    st.button(
+        "Save Emotion",
+        type="primary",
+        on_click=save_current_emotion,
+        args=(authenticated_user,)
+    )
 
 elif page == "📈 Emotion Analysis":
     st.title("📈 Emotion Analysis")
-    selected_user = st.selectbox("Select user for analysis:", USERS, key="emotion_analysis_user")
     period = st.selectbox(
         "Time period:",
         ["today", "week", "month", "year", "all"],
@@ -374,7 +400,7 @@ elif page == "📈 Emotion Analysis":
         key="emotion_period_select"
     )
 
-    entries = filter_emotion_entries_by_period(get_emotion_entries(selected_user), period)
+    entries = filter_emotion_entries_by_period(get_emotion_entries(authenticated_user), period)
     if not entries:
         st.info(f"No emotion entries for {get_period_label(period)}. Record an emotion from Emotion Log.")
     else:

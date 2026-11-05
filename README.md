@@ -53,7 +53,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the application structure, data model
 ## Installation & Setup
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.9+
 - pip
 
 ### Local Development Setup
@@ -158,6 +158,30 @@ If you want to use Cloudflare D1:
 1. Select **"💭 Emotion Log"** in the sidebar
 2. Choose an emotion, set its intensity, and optionally describe the cause
 3. Select **"📈 Emotion Analysis"** to review occurrences and average intensity by period
+
+## Authentication Setup
+
+The app requires Google sign-in and only allows accounts explicitly mapped to an existing app username. The account mapping is used for every habit and emotion database operation; users cannot select another account from the UI.
+
+1. Create an OAuth 2.0 Client ID in Google Cloud Console with application type **Web application**.
+2. Add the exact redirect URI for each environment to **Authorized redirect URIs**. For local development, use `http://localhost:8501/oauth2callback`. For Streamlit Community Cloud, use `https://<your-app>.streamlit.app/oauth2callback`.
+3. Add the following tables to local `.streamlit/secrets.toml` or the deployed app's Streamlit Secrets settings. Replace all placeholder values, including the authorized email-to-username mappings. **Keep the existing top-level Cloudflare D1 secrets in the same secrets file/settings; do not replace them with only this snippet.**
+
+   ```toml
+   [auth]
+   redirect_uri = "http://localhost:8501/oauth2callback"
+   cookie_secret = "replace-with-a-long-random-secret"
+   client_id = "your-google-oauth-client-id"
+   client_secret = "your-google-oauth-client-secret"
+   server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+
+   [authorized_users]
+   "bipin@example.com" = "Bipin"
+   "ragini@example.com" = "Ragini"
+   ```
+
+   Use the deployed redirect URI in the deployed app's secrets. Generate a strong cookie secret locally, for example with `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Never commit `secrets.toml` or put OAuth secrets in source code.
+4. Install the updated dependencies and restart the app. Google accounts not in `authorized_users`, or mapped to names absent from `USERS`, are denied access.
 
 ## Deployment to Streamlit Cloud (Free)
 

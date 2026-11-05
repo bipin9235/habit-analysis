@@ -10,6 +10,7 @@ from utils import (
     filter_entries_by_period,
     get_intensity_band,
     get_today_date,
+    resolve_authorized_user,
     to_india_datetime,
 )
 
@@ -67,6 +68,20 @@ class EmotionTrackingTests(unittest.TestCase):
         self.assertEqual(get_intensity_band(4), ("🟡", "Mild"))
         self.assertEqual(get_intensity_band(7), ("🟠", "Moderate"))
         self.assertEqual(get_intensity_band(8), ("🔴", "Strong"))
+
+    def test_authenticated_email_only_maps_to_allowlisted_user(self):
+        allowlist = {"bipin@example.com": "Bipin", "unknown@example.com": "Mallory"}
+
+        self.assertEqual(
+            resolve_authorized_user(" BIPIN@example.com ", allowlist, ["Bipin", "Ragini"]),
+            "Bipin"
+        )
+        self.assertIsNone(
+            resolve_authorized_user("other@example.com", allowlist, ["Bipin", "Ragini"])
+        )
+        self.assertIsNone(
+            resolve_authorized_user("unknown@example.com", allowlist, ["Bipin", "Ragini"])
+        )
 
 
 if __name__ == "__main__":
